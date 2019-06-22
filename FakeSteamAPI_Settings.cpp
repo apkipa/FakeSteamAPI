@@ -16,14 +16,11 @@ typedef struct tagFakeSteamAPI_SettingsVariant {
 
 FakeSteamAPI_SettingsVariant settingsItemList[10];
 
-static class initialization_helper_class {
-public:
-	initialization_helper_class (void) {
-		settingsItemList[0] = { FakeSteamAPI_SettingsVariant_Null };
-		settingsItemList[FakeSteamAPI_SettingsIndex_ProcessMessageInRunCallbacks] = { FakeSteamAPI_SettingsVariant_Int32 };
-		settingsItemList[FakeSteamAPI_SettingsIndex_UseAbsoluteAddress] = { FakeSteamAPI_SettingsVariant_Int32 };
-	}
-} initialization_helper_variable;
+void FakeSteamAPI_Settings_Init(void) {
+	settingsItemList[0] = { FakeSteamAPI_SettingsVariant_Null };
+	settingsItemList[FakeSteamAPI_SettingsIndex_ProcessMessageInRunCallbacks] = { FakeSteamAPI_SettingsVariant_Int32 };
+	settingsItemList[FakeSteamAPI_SettingsIndex_UseAbsoluteAddress] = { FakeSteamAPI_SettingsVariant_Int32 };
+}
 
 int32_t FakeSteamAPI_GetSettingsItemInt32(int nIndex) /*noexcept*/ {
 	if (nIndex <= 0 || nIndex >= GetArrLen(settingsItemList))

@@ -12,7 +12,7 @@
 
 //Make FakeSteamAPI.dll bigger, just like the normal steam_api.dll does
 #pragma optimize("", off)
-char placeholder[1024 * 64] = { 'I', 'n', 'f', 'o', '\0' };
+char placeholder[1024 * 24] = { 'I', 'n', 'f', 'o', '\0' };
 
 void FakeSteamAPI_NullPlaceholderRef(void) {
 	if (sizeof(placeholder) == 0)
@@ -20,9 +20,16 @@ void FakeSteamAPI_NullPlaceholderRef(void) {
 }
 #pragma optimize("", on)
 
+void FakeSteamAPI_DoInitialization(void) {
+	FakeSteamAPI_Settings_Init();
+	FakeSteamAPI_Utilities_Init();
+}
+
 //steam_api.h
 S_API bool S_CALLTYPE SteamAPI_Init() {
 	bool bClickedOk;
+
+	FakeSteamAPI_DoInitialization();
 
 	FakeSteamAPI_NullPlaceholderRef();
 

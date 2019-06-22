@@ -4,6 +4,7 @@
 
 #include "FakeSteamAPI_ContextProvider.h"
 #include "FakeSteamAPI_Utilities.h"
+#include "FakeSteamAPI_Settings.h"
 #include "FakeSteamAPI_LogSys.h"
 
 #include "steam_api.h"
@@ -11,7 +12,7 @@
 
 //Make FakeSteamAPI.dll bigger, just like the normal steam_api.dll does
 #pragma optimize("", off)
-char placeholder[1024 * 24] = { 'I', 'n', 'f', 'o', '\0' };
+char placeholder[1024 * 64] = { 'I', 'n', 'f', 'o', '\0' };
 
 void FakeSteamAPI_NullPlaceholderRef(void) {
 	if (sizeof(placeholder) == 0)
@@ -86,11 +87,21 @@ S_API void S_CALLTYPE SteamAPI_SetMiniDumpComment(const char *pchMsg) {
 
 S_API void S_CALLTYPE SteamAPI_RunCallbacks() {
 	static bool bFirst = true;
+	MSG msg;
+
 	if (bFirst) {
 		bFirst = false;
 		FakeSteamAPI_LogFuncBeingCalled();
 		FakeSteamAPI_AppendLog(LogLevel_Info, "Calls to %s() will only be shown once.", __FUNCTION__);
 	}
+
+	if (FakeSteamAPI_GetSettingsItemInt32(FakeSteamAPI_SettingsIndex_ProcessMessageInRunCallbacks) != 0) {
+		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+			//TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+	}
+
 	return;
 }
 

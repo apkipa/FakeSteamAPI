@@ -4,7 +4,19 @@
 
 #include "FakeSteamAPI_LogSys.h"
 
+typedef struct _PEB PEB, *PPEB;
+
 void (__stdcall *g_RtlGetCallersAddress)(void **CallersAddress, void **CallersCaller) = nullptr;
+
+PPEB NtCurrentPeb(void) {
+	//32-bit Windows only
+	return (PPEB)*((DWORD_PTR*)NtCurrentTeb() + 12);	//Hardcoded offset
+}
+
+void* NtGetImageStartAddress(void) {
+	//32-bit Windows only
+	return (void*)*((DWORD_PTR*)NtCurrentPeb() + 2);	//Hardcoded offset
+}
 
 bool FakeSteamAPI_GetEIP(void *&ptr) {
 	void *p1, *p2;
@@ -24,7 +36,6 @@ void* FakeSteamAPI_GetEIP(void) {
 	if (g_RtlGetCallersAddress == nullptr)
 		return nullptr;
 	g_RtlGetCallersAddress(&p1, &p2);
-	//FakeSteamAPI_AppendLog(LogLevel_Debug, "p1 = 0x%08X, p2 = 0x%08X", (int)p1, (int)p2);
 	return p2;
 }
 
@@ -46,4 +57,8 @@ void* FakeSteamAPI_GetEIP1(void) {
 		return nullptr;
 	g_RtlGetCallersAddress(&p1, &p2);
 	return p2;
+}
+
+void* FakeSteamAPI_GetImageBase(void) {
+	return NtGetImageStartAddress();
 }

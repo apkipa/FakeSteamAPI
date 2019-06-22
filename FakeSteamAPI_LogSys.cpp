@@ -1,9 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "FakeSteamAPI_LogSys.h"
+
 #include <Windows.h>
 #include <CommCtrl.h>
-
 #include <cstdarg>
 #include <cstring>
 #include <cstdio>
@@ -12,6 +12,7 @@
 
 #pragma comment(lib, "comctl32")
 #pragma comment(lib, "user32")
+#pragma comment(lib, "gdi32")
 
 using namespace std;
 
@@ -25,6 +26,8 @@ HWND g_hwLogger;
 #define EDIT_CONTROL_ID 100001
 #define EDIT_SUBCLASS_ID 100001
 #define SYSMENU_ALWAYS_ON_TOP_ID (1001 << 16)
+#define SYSMENU_PROCESS_MESSAGE_IN_RUNCALLBACKS (1002 << 16)
+#define SYSMENU_USE_ABSOLUTE_ADDRESS (1003 << 16)
 
 void FakeSteamAPI_Internal_GenerateCurrentTimeString(char *buf) {
 	struct timespec timespec;
@@ -63,7 +66,8 @@ LRESULT CALLBACK Edit_SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 //Sets the caret to the end of the text and append the text
 void Edit_AppendTextA(HWND hwEdit, char *str) {
 	int nTextLen;
-	nTextLen = GetWindowTextLengthA(hwEdit);
+	//nTextLen = GetWindowTextLengthA(hwEdit);
+	nTextLen = 1024 * 1024;
 	SendMessageA(hwEdit, EM_SETSEL, nTextLen, nTextLen);
 	SendMessageA(hwEdit, EM_REPLACESEL, FALSE, (LPARAM)str);
 }
@@ -146,9 +150,56 @@ bool FakeSteamAPI_Internal_InvertMenuCheck(HMENU hMenu, UINT nItemId) {
 	return (bool)(mii.fState & MFS_CHECKED);
 }
 
+HFONT FakeSteamAPI_Internal_EasyCreateFontA(HDC hdc, const char *strFont, int nPointSize) {
+	int nLogPixelsX, nLogPixelsY;
+	bool bMarkHdcDelete;
+	LOGFONTA logFont;
+	HFONT hFont;
+
+	if (strFont == NULL)
+		return false;
+
+	bMarkHdcDelete = false;
+	if (hdc == NULL) {
+		bMarkHdcDelete = true;
+		hdc = CreateDCA("DISPLAY", NULL, NULL, NULL);
+		if (hdc == NULL)
+			return NULL;
+	}
+
+	nLogPixelsX = GetDeviceCaps(hdc, LOGPIXELSX);
+	nLogPixelsY = GetDeviceCaps(hdc, LOGPIXELSY);
+
+	if (bMarkHdcDelete)
+		DeleteDC(hdc);
+
+	(void)nLogPixelsX;	//Mark as used
+
+	logFont.lfWidth = 0;
+	logFont.lfHeight = -MulDiv(nPointSize, nLogPixelsY, 72);
+	logFont.lfEscapement = 0;
+	logFont.lfOrientation = 0;
+	logFont.lfWeight = FW_NORMAL;
+	logFont.lfItalic = false;
+	logFont.lfUnderline = false;
+	logFont.lfStrikeOut = false;
+	logFont.lfCharSet = DEFAULT_CHARSET;
+	logFont.lfOutPrecision = OUT_DEFAULT_PRECIS;
+	logFont.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+	logFont.lfQuality = DEFAULT_QUALITY;
+	logFont.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+	strncpy(logFont.lfFaceName, strFont, LF_FACESIZE - 1);
+	logFont.lfFaceName[LF_FACESIZE - 1] = L'\0';
+
+	hFont = CreateFontIndirectA(&logFont);
+
+	return hFont;
+}
+
 LRESULT CALLBACK FakeSteamAPI_Internal_LogWindowCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	HMENU hMenuSys;
 	RECT rtClient;
+	HFONT hFont;
 	HWND hwEdit;
 
 	switch (msg) {
@@ -168,19 +219,30 @@ LRESULT CALLBACK FakeSteamAPI_Internal_LogWindowCallback(HWND hwnd, UINT msg, WP
 		);
 		SetWindowSubclass(hwEdit, Edit_SubclassProc, EDIT_SUBCLASS_ID, 0);
 
+		hFont = FakeSteamAPI_Internal_EasyCreateFontA(NULL, "Consolas", 10);
+		SendMessage(hwEdit, WM_SETFONT, (WPARAM)hFont, FALSE);
+
 		hMenuSys = GetSystemMenu(hwnd, FALSE);
 		AppendMenuA(hMenuSys, MF_SEPARATOR, 0, NULL);
 		AppendMenuA(hMenuSys, MF_STRING, SYSMENU_ALWAYS_ON_TOP_ID, "Always on top");
+		AppendMenuA(hMenuSys, MF_STRING, SYSMENU_PROCESS_MESSAGE_IN_RUNCALLBACKS, "Process message in SteamAPI_RunCallbacks()");
+		AppendMenuA(hMenuSys, MF_STRING | MF_CHECKED, SYSMENU_USE_ABSOLUTE_ADDRESS, "Display absolute address");
+
+		FakeSteamAPI_SetSettingsItemInt32(FakeSteamAPI_SettingsIndex_ProcessMessageInRunCallbacks, 0);
+		FakeSteamAPI_SetSettingsItemInt32(FakeSteamAPI_SettingsIndex_UseAbsoluteAddress, 1);
 		break;
+	case WM_CLOSE:
+		hwEdit = GetDlgItem(hwnd, EDIT_CONTROL_ID);
+		hFont = (HFONT)SendMessage(hwEdit, WM_GETFONT, 0, 0);
+		DestroyWindow(hwEdit);
+		DeleteObject(hFont);
+		RemoveWindowSubclass(hwEdit, Edit_SubclassProc, EDIT_SUBCLASS_ID);
+		FakeSteamAPI_FreeLogWindow();
+		return 0;
 	case WM_NCMOUSEMOVE:
 	case WM_MOUSEMOVE:
 		while (ShowCursor(TRUE) < 0);
 		break;
-	case WM_CLOSE:
-		hwEdit = GetDlgItem(hwnd, EDIT_CONTROL_ID);
-		RemoveWindowSubclass(hwEdit, Edit_SubclassProc, EDIT_SUBCLASS_ID);
-		FakeSteamAPI_FreeLogWindow();
-		return 0;
 	case WM_SIZE:
 		hwEdit = GetDlgItem(hwnd, EDIT_CONTROL_ID);
 		MoveWindow(hwEdit, 0, 0, LOWORD(lParam), HIWORD(lParam), FALSE);
@@ -193,6 +255,22 @@ LRESULT CALLBACK FakeSteamAPI_Internal_LogWindowCallback(HWND hwnd, UINT msg, WP
 				SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 			else
 				SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+			break;
+		case SYSMENU_PROCESS_MESSAGE_IN_RUNCALLBACKS:
+			hMenuSys = GetSystemMenu(hwnd, FALSE);
+			FakeSteamAPI_SetSettingsItemInt32(
+				FakeSteamAPI_SettingsIndex_ProcessMessageInRunCallbacks,
+				!FakeSteamAPI_Internal_InvertMenuCheck(hMenuSys, SYSMENU_PROCESS_MESSAGE_IN_RUNCALLBACKS)
+			);
+			break;
+		case SYSMENU_USE_ABSOLUTE_ADDRESS:
+			hMenuSys = GetSystemMenu(hwnd, FALSE);
+			FakeSteamAPI_SetSettingsItemInt32(
+				FakeSteamAPI_SettingsIndex_UseAbsoluteAddress,
+				!FakeSteamAPI_Internal_InvertMenuCheck(hMenuSys, SYSMENU_USE_ABSOLUTE_ADDRESS)
+			);
+			if (FakeSteamAPI_GetSettingsItemInt32(FakeSteamAPI_SettingsIndex_UseAbsoluteAddress) == 0)
+				FakeSteamAPI_AppendLog(LogLevel_Debug, "BASE = 0x%08X", (int)FakeSteamAPI_GetImageBase());
 			break;
 		default:
 			return DefWindowProc(hwnd, msg, wParam, lParam);
